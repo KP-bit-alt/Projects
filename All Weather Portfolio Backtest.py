@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 """
 All-Weather Portfolio (AWP) – NTNU Thesis Replication Backtest
 ----------------------------------------------------------------
@@ -48,7 +48,7 @@ import math
 import numpy as np
 import pandas as pd
 
-# Optional imports with graceful fallbacks
+
 try:
     from pandas_datareader import data as pdr
 except Exception:
@@ -64,35 +64,31 @@ try:
 except Exception:
     minimize_scalar = None
 
-# -----------------------------
-# Configuration
-# -----------------------------
+
 class CONFIG:
     START = pd.Timestamp("1970-02-01")   # thesis start (monthly)
     END   = pd.Timestamp("2021-01-01")   # thesis end (monthly)
 
-    # Paths – override as needed
+
     DATA_DIR = os.path.join(os.getcwd(), "data")
     OUT_DIR  = os.path.join(os.getcwd(), "outputs")
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    # File names for optional CSVs
+    
     GSCI_CSV = os.path.join(DATA_DIR, "gsci_tr.csv")  # columns: Date, Value (monthly)
 
-    # Plotting
+    
     PLOT = False  # set True to draw basic figures (requires matplotlib)
 
-    # Risk-free series (FRED code) & handling
+    
     RF_FRED = "TB3MS"  # 3M T-bill (% p.a.), monthly
 
-    # Annualization factors for quarterly stats
+    
     Q_PER_YEAR = 4
 
 
-# -----------------------------
-# Helpers: I/O and transforms
-# -----------------------------
+
 
 def _to_period_end(s: pd.Series, rule: str) -> pd.Series:
     """Resample to period end (e.g., 'M' or 'Q') using last observation in period."""
@@ -134,9 +130,7 @@ def _max_drawdown(quarterly_returns: pd.Series) -> float:
     return dd.min()
 
 
-# -----------------------------
-# Data Loaders
-# -----------------------------
+
 
 def load_fred_series(code: str, start: pd.Timestamp | None = None, end: pd.Timestamp | None = None,
                      q: bool = False) -> pd.Series:
@@ -149,7 +143,7 @@ def load_fred_series(code: str, start: pd.Timestamp | None = None, end: pd.Times
     s = df.iloc[:, 0].dropna()
     s.index = pd.to_datetime(s.index)
     if q:
-        # For certain daily/monthly series, move to quarterly end-of-quarter using last obs
+        
         s = _to_period_end(s, "Q")
     else:
         s = _to_period_end(s, "M")
@@ -187,7 +181,7 @@ def load_gsci_tr_monthly() -> pd.Series:
     """
     if os.path.exists(CONFIG.GSCI_CSV):
         df = pd.read_csv(CONFIG.GSCI_CSV)
-        # Flexible parse
+        
         date_col = "Date"
         val_col = "Value"
         if date_col not in df.columns:
@@ -199,7 +193,7 @@ def load_gsci_tr_monthly() -> pd.Series:
         s = _to_period_end(s, "M")
         s.name = "GSCI_TR"
         return s
-    # Fallback to GSG ETF (post-2006)
+  
     if yf is None:
         raise RuntimeError("GSCI CSV missing and yfinance not available. Provide data/gsci_tr.csv.")
     df = yf.download("GSG", start=CONFIG.START, end=CONFIG.END, interval="1mo", auto_adjust=True)
@@ -216,7 +210,7 @@ def load_treasury_yields_monthly() -> pd.DataFrame:
     y20 = load_fred_series("DGS20", CONFIG.START, CONFIG.END)
     df = pd.concat([y5, y10, y20], axis=1).dropna()
     df.columns = ["y5", "y10", "y20"]
-    # Convert percent -> decimal
+   
     return df / 100.0
 
 
@@ -224,11 +218,6 @@ def load_rf_monthly() -> pd.Series:
     """3M T-bill monthly yield (decimal)."""
     rf = load_fred_series(CONFIG.RF_FRED, CONFIG.START, CONFIG.END)
     return rf / 100.0
-
-
-# -----------------------------
-# Bond return construction (Swinkels 2019; Thesis Eq. 6–8)
-# -----------------------------
 
 def modified_duration(y: pd.Series, T: float) -> pd.Series:
     """Eq. (6): D_t = 1/y_t * [1 - 1 / (1 + y_t/2)^(2*T)]"""
@@ -269,16 +258,12 @@ def build_treasury_portfolios_quarterly(yields_m: pd.DataFrame) -> pd.DataFrame:
     r10m = monthly_bond_return(yields_m["y10"], 10.0)
     r20m = monthly_bond_return(yields_m["y20"], 20.0)
 
-    # Long- and Intermediate-term monthly arithmetic returns (Eq. 9–10):
     r_long_m = (r20m + r10m) / 2.0
     r_int_m  = (r10m + r5m)  / 2.0
 
-    # Convert to quarterly arithmetic returns by compounding monthly inside each quarter
     r_long_q = _compound_period(r_long_m, "M", "Q")
     r_int_q  = _compound_period(r_int_m,  "M", "Q")
 
-    # Convert to quarterly log returns using Eq. (5) logic on synthetic price paths
-    # (log(1+r_q))
     out = pd.DataFrame({
         "LT_q_log": np.log(1.0 + r_long_q),
         "IT_q_log": np.log(1.0 + r_int_q),
@@ -286,9 +271,6 @@ def build_treasury_portfolios_quarterly(yields_m: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-# -----------------------------
-# Portfolio construction
-# -----------------------------
 
 def equal_risk_contrib_weights(vol_q: pd.Series) -> pd.Series:
     """Assuming zero correlations between sub-portfolios (as per thesis simplification),
@@ -319,22 +301,19 @@ def choose_treasury_split_to_maximize_sharpe(
     Returns alpha (LT share within x4). Requires scipy; otherwise returns 0.8211 (thesis value).
     """
     if minimize_scalar is None:
-        return 0.8211  # fallback to thesis decomposition
+        return 0.8211  
 
-    # Align all series
     df = pd.concat([
         lt_log_q.rename("LT"), it_log_q.rename("IT"),
         spx_log_q.rename("SPX"), gsci_log_q.rename("GSCI"), gold_log_q.rename("GOLD"),
         rf_log_q.rename("RF")
     ], axis=1).dropna()
 
-    # Sub-portfolio weights except x4 components (we will distribute x4 between LT/IT)
     w1, w2, w3, w4 = w_sub["x1"], w_sub["x2"], w_sub["x3"], w_sub["x4"]
 
     def neg_sharpe(alpha: float) -> float:
         al = min(max(alpha, 0.0), 1.0)
-        # Build quarterly log return of the aggregated portfolio
-        # Convert sub-portfolio log returns to arithmetic for aggregation, then back to log
+
         r_spx  = np.exp(df["SPX"])  - 1.0
         r_gsci = np.exp(df["GSCI"]) - 1.0
         r_gold = np.exp(df["GOLD"]) - 1.0
@@ -346,7 +325,6 @@ def choose_treasury_split_to_maximize_sharpe(
         r_p  = w1 * r_gsci + w2 * r_gold + w3 * r_spx + w4 * r_tr
         r_p_log = np.log(1.0 + r_p)
         r_ex_log = r_p_log - df["RF"]
-        # Convert to arithmetic excess for Sharpe calc consistency
         r_ex = (np.exp(r_ex_log) - 1.0)
         s = r_ex.mean() / (r_ex.std(ddof=0) + 1e-12)
         return -s
@@ -358,65 +336,49 @@ def choose_treasury_split_to_maximize_sharpe(
 
 
 def build_allwp_backtest():
-    # 1) Load asset price levels (monthly)
     spx_m   = load_sp500_monthly()
     gold_m  = load_gold_monthly()
     gsci_m  = load_gsci_tr_monthly()
 
-    # 2) Load yields & risk-free (monthly)
     ylds_m  = load_treasury_yields_monthly()
     rf_m    = load_rf_monthly()
 
-    # 3) Align monthly panels and clip to common sample window
     panel_m = pd.concat([
         spx_m.rename("SPX"), gsci_m.rename("GSCI"), gold_m.rename("GOLD"),
         ylds_m, rf_m.rename("RF")
     ], axis=1).dropna()
 
-    # Clip to desired thesis dates but respect actual availability
     panel_m = panel_m.loc[(panel_m.index >= CONFIG.START) & (panel_m.index <= CONFIG.END)]
 
-    # 4) Convert SPX/GSCI/GOLD to quarterly log returns (Eq. 5)
     spx_q_log  = _log_return(_to_period_end(panel_m["SPX"],  "Q")).dropna()
     gsci_q_log = _log_return(_to_period_end(panel_m["GSCI"], "Q")).dropna()
     gold_q_log = _log_return(_to_period_end(panel_m["GOLD"], "Q")).dropna()
 
-    # 5) Treasury monthly returns -> quarterly log returns (Eq. 6–10, then Eq. 5)
     lt_it_q = build_treasury_portfolios_quarterly(panel_m[["y5","y10","y20"]])
 
-    # 6) Risk-free quarterly log returns by compounding monthly RF
-    # Monthly RF return approximation: y/12 (simple), then compound to quarter
     rf_m_ret = panel_m["RF"] / 12.0  # decimal monthly
     rf_q_ret = _compound_period(rf_m_ret.rename("rf"), "M", "Q")
     rf_q_log = np.log(1.0 + rf_q_ret).rename("RF_q_log")
 
-    # Align quarterly frames
     q = pd.concat([
         spx_q_log.rename("SPX"), gsci_q_log.rename("GSCI"), gold_q_log.rename("GOLD"),
         lt_it_q, rf_q_log
     ], axis=1).dropna()
 
-    # 7) Build sub-portfolio returns (quarterly LOG):
-    # x1=GSCI, x2=Gold, x3=SPX, x4=Treasuries (blend to be determined)
 
-    # Compute sub-portfolio volatilities (quarterly) for equal risk contribution across x1..x3..x4
     vol_q = q[["GSCI","GOLD","SPX"]].std(ddof=0)
-    # For x4 vol, we need a preliminary blend. Use equal split to start.
     tr_eq_log = np.log(1.0 + (np.exp(q["LT"]) - 1.0) * 0.5 + (np.exp(q["IT"]) - 1.0) * 0.5)
     vol_x4 = tr_eq_log.std(ddof=0)
     vol_all = pd.concat([vol_q, pd.Series({"x4": vol_x4})])
     vol_all.index = ["x1","x2","x3","x4"]
 
-    # Equal risk contribution weights across sub-portfolios
     w_sub = equal_risk_contrib_weights(vol_all)
 
-    # Optimize LT/IT split inside x4 to maximize overall Sharpe
     alpha_lt = choose_treasury_split_to_maximize_sharpe(
         w_sub,
         q["LT"], q["IT"], q["SPX"], q["GSCI"], q["GOLD"], q["RF_q_log"]
     )
 
-    # Final portfolio quarterly arithmetic returns
     r_spx  = np.exp(q["SPX"])  - 1.0
     r_gsci = np.exp(q["GSCI"]) - 1.0
     r_gold = np.exp(q["GOLD"]) - 1.0
@@ -429,21 +391,17 @@ def build_allwp_backtest():
     w1, w2, w3, w4 = w_sub["x1"], w_sub["x2"], w_sub["x3"], w_sub["x4"]
     r_allwp = w1 * r_gsci + w2 * r_gold + w3 * r_spx + w4 * r_tr
 
-    # Benchmarks:
     r_6040 = 0.60 * r_spx + 0.40 * r_it
     r_100e = r_spx.copy()  # 100% equity
 
-    # Convert to log
     log_allwp = np.log(1.0 + r_allwp)
     log_6040  = np.log(1.0 + r_6040)
     log_100e  = np.log(1.0 + r_100e)
 
-    # Excess (log) vs RF, then to arithmetic for Sharpe calc
     r_ex_allwp = (np.exp(log_allwp - q["RF_q_log"]) - 1.0)
     r_ex_6040  = (np.exp(log_6040  - q["RF_q_log"]) - 1.0)
     r_ex_100e  = (np.exp(log_100e  - q["RF_q_log"]) - 1.0)
 
-    # Summary stats
     def stats(name: str, rq: pd.Series, rex: pd.Series) -> dict:
         mu_q, sd_q = rq.mean(), rq.std(ddof=0)
         ann_ex, ann_sd = _annualize_from_quarterly(rex.mean(), rex.std(ddof=0))
@@ -466,10 +424,8 @@ def build_allwp_backtest():
 
     df_stats = pd.DataFrame(table)
 
-    # Rolling holding-period stats (1,3,5,10y) – annualized arithmetic returns
     def rolling_ann_return(r: pd.Series, years: int) -> pd.Series:
         w = CONFIG.Q_PER_YEAR * years
-        # compound quarterly arithmetic to w-period gross then annualize
         gross = (1.0 + r).rolling(w).apply(np.prod, raw=True)
         ann = gross ** (1.0 / years) - 1.0
         return ann.dropna()
@@ -494,11 +450,9 @@ def build_allwp_backtest():
             })
     df_roll = pd.DataFrame(roll_stats)
 
-    # Save outputs
     df_stats.to_csv(os.path.join(CONFIG.OUT_DIR, "summary_stats.csv"), index=False)
     df_roll.to_csv(os.path.join(CONFIG.OUT_DIR, "rolling_stats.csv"), index=False)
 
-    # Compose details for inspection
     details = {
         "weights_subportfolios": w_sub.to_dict(),
         "alpha_LT_within_x4": alpha_lt,
@@ -512,7 +466,6 @@ def build_allwp_backtest():
         "common_quarter_range": (str(q.index[0].date()), str(q.index[-1].date())),
     }
 
-    # Optional plots
     if CONFIG.PLOT:
         try:
             import matplotlib.pyplot as plt
@@ -543,3 +496,4 @@ if __name__ == "__main__":
     except Exception as e:
         print("ERROR:", e)
         print("Hint: ensure pandas_datareader/yfinance are installed and provide data/gsci_tr.csv for long history.")
+
